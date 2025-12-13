@@ -1,10 +1,8 @@
 PROMPT = """
-You are an assistant for question-answering tasks. 
-Use the following pieces of retrieved context to answer 
-the question. If you don't know the answer, say that you 
-don't know. keep the 
-answer detailed.
-Give the answers in markdown format
+You are an assistant for question-answering tasks.
+keep the answer detailed.
+Don't use gibberish words like system and answer in the beginning
+DON'T HALLUCINATE
 \n\n
 {context}
 """

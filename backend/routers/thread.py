@@ -39,9 +39,14 @@ async def get_threads(token: Dict = Depends(http_bearer_get_current_user)):
 @thread_router.get("/chat/{thread_id}")
 async def get_chat(thread_id, token: Dict = Depends(http_bearer_get_current_user)):
     chat = await Chat.filter(thread_id=thread_id).all()        
-    response = []
-    human_chat = chat[0::2]
-    bot_chat = chat[1::2]
-    for i in range(len(human_chat)):
-        response.append({"human": human_chat[i].chat, "bot": bot_chat[i].chat})
-    return {"response": response}
+    thread = await Thread.get(id=thread_id)
+    email_id = token["user"]["id"]
+    if email_id == thread.email_id:
+        response = []
+        human_chat = chat[0::2]
+        bot_chat = chat[1::2]
+        for i in range(len(human_chat)):
+            response.append({"human": human_chat[i].chat, "bot": bot_chat[i].chat})
+        return {"response": response}
+    else:
+        raise HTTPException(404, "Not Found")
