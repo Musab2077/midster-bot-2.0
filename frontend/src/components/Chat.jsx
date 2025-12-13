@@ -182,7 +182,9 @@ export default function Chat(props) {
       setChatResponse(true);
       setMessages("");
     } catch (err) {
+      // console.log("redirecting");
       console.error("Error fetching chat:", err);
+      navigate("/chat/0");
       toast.error("Could not load chat");
     }
   }
@@ -202,7 +204,7 @@ export default function Chat(props) {
   }
 
   useEffect(() => {
-    if (Number(chatIds) > 0) {
+    if (Number(chatIds) != 0) {
       handleSavedChat(Number(chatIds));
     } else {
       handleNewChat();
