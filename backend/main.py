@@ -2,13 +2,14 @@ from fastapi import FastAPI
 from fastapi.security import HTTPBearer
 from fastapi.middleware.cors import CORSMiddleware
 from tortoise.contrib.fastapi import register_tortoise
+import os
 
 from routers.auth import auth_router
 from routers.thread import thread_router
 
 security = HTTPBearer()
 
-DATABASE_URL = "postgres://postgres:1234@localhost:5432/videoSummarizer"
+DATABASE_URL = os.getenv("DATABASE_URL")
 
 app = FastAPI()
 
