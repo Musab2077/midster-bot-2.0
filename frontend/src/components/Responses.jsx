@@ -6,6 +6,7 @@ import { IoIosArrowRoundUp } from "react-icons/io";
 const Responses = ({
   isNewChat,
   inputResponse,
+  isLoading,
   onSendMessage,
   handleTextArea,
   children,
@@ -70,22 +71,34 @@ const Responses = ({
           </div>
         )}
         <div className="w-full max-w-3xl mx-auto">
+          {isLoading && isNewChat && (
+            <div className="text-center text-gray-400 mb-3 animate-pulse">
+              Processing YouTube video… Please wait ⏳
+            </div>
+          )}
           <form onSubmit={handleSubmit} onKeyDown={handleKeyDown}>
             <div className="relative">
               <textarea
                 ref={textareaRef}
                 value={message}
                 onChange={handleChange}
-                placeholder={`${
-                  isNewChat ? "Place your youtube url" : "Message Midster-Bot"
+                disabled={isLoading}
+                placeholder={
+                  isLoading && isNewChat
+                    ? "Processing YouTube video..."
+                    : isNewChat
+                    ? "Place your youtube url"
+                    : "Message Midster-Bot"
+                }
+                className={`w-full p-4 pt-5 pr-12 rounded-2xl bg-inputBg text-white focus:outline-none resize-none ${
+                  isLoading ? "opacity-50 cursor-not-allowed" : ""
                 }`}
-                className="w-full p-4 pt-5 pr-12 rounded-2xl bg-inputBg text-white focus:outline-none resize-none"
                 style={{ minHeight: "60px" }}
               />
               <button
                 type="submit"
-                className="absolute right-2 bottom-2 pb-2 pr-4 text-black hover:opacity-55 transition-opacity"
-                disabled={!message.trim()}
+                disabled={!message.trim() || isLoading}
+                className="absolute right-2 bottom-2 pb-2 pr-4 text-black hover:opacity-55 transition-opacity disabled:opacity-40"
               >
                 <IoIosArrowRoundUp className="bg-white rounded-full size-8" />
               </button>
