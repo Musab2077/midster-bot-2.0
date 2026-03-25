@@ -1,51 +1,35 @@
-import os
-import yt_dlp
-from openai import OpenAI
-from dotenv import load_dotenv
+import re
+from fastapi import HTTPException
+from youtube_transcript_api import YouTubeTranscriptApi
+from youtube_transcript_api._errors import NoTranscriptFound, TranscriptsDisabled
 
-load_dotenv()
 
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+def extract_video_id(url: str) -> str:
+    patterns = [
+        r"(?:v=|\/)([0-9A-Za-z_-]{11})",
+        r"(?:youtu\.be\/)([0-9A-Za-z_-]{11})",
+    ]
+    for pattern in patterns:
+        match = re.search(pattern, url)
+        if match:
+            return match.group(1)
+    raise HTTPException(400, "Invalid YouTube URL")
 
-class TranscriptionFromUrl():
-    def __init__(self, path="../data/audio.mp3"):
-        self.file_name = path
-        
-    def extracting_audio_from_url(self, video_url):
-        ydl_opts = {
-            "format": "bestaudio/best",
-            "outtmpl": self.file_name,
-            "postprocessors": [
-                {
-                    "key": "FFmpegExtractAudio",
-                    "preferredcodec": "mp3",
-                    "preferredquality": "192",
-                }
-            ],
-        }
+
+class TranscriptionFromUrl:
+
+    def transcribe_from_url(self, video_url: str) -> str:
         try:
-            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                ydl.download([video_url])
-            return {
-                "status": "success",
-                "audio_file": self.file_name,
-                "download_path": os.path.abspath(self.file_name)
-            }
+            video_id = extract_video_id(video_url)
+            ytt_api  = YouTubeTranscriptApi()
+            fetched  = ytt_api.fetch(video_id)
+            return " ".join(snippet.text for snippet in fetched)
+
+        except NoTranscriptFound:
+            raise HTTPException(400, "No transcript available for this video")
+        except TranscriptsDisabled:
+            raise HTTPException(400, "Transcripts are disabled for this video")
+        except HTTPException:
+            raise
         except Exception as e:
-            return {"status": "error", "message": str(e)}
-
-    def extracting_text_from_audio(self):
-        client = OpenAI(api_key=OPENAI_API_KEY)
-        try:
-            with open(self.file_name, "rb") as audio:
-                transcription = client.audio.transcriptions.create(
-                    model="whisper-1",
-                    file=audio
-                )
-            self.transcription = transcription.text
-            os.remove(self.file_name)
-            return transcription.text
-        except:
-            return "error"
-    
-transcription_from_url = TranscriptionFromUrl()
+            raise HTTPException(500, f"Transcription failed: {str(e)}")

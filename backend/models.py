@@ -3,17 +3,20 @@ from tortoise.fields import (
     IntField,
     CharField,
     TextField,
-    ForeignKeyField
-    )
+    ForeignKeyField,
+)
 
-class User(Model):  ## This table is used for authorization
-    __tablename__ = "users"
 
+class User(Model):
     id = IntField(primary_key=True, index=True)
     email = CharField(50, unique=True, index=True)
     password = TextField()
-    
-class Thread(Model):  ## This table is used for the threads to save the chat
+
+    class Meta:
+        table = "users"
+
+
+class Thread(Model):
     id = IntField(primary_key=True, index=True)
     url = TextField()
     email = ForeignKeyField(
@@ -22,13 +25,14 @@ class Thread(Model):  ## This table is used for the threads to save the chat
         to_field="id",
         source_field="email_id",
     )
-    
+
     class Meta:
         table = "thread"
 
-class Chat(Model):  ## This table is used to save chats of the respective thread
+
+class Chat(Model):
     id = IntField(primary_key=True, index=True)
-    assistant = CharField(5)
+    assistant = CharField(10)   # "human" or "bot"
     chat = TextField()
     thread = ForeignKeyField(
         "models.Thread",
@@ -36,6 +40,6 @@ class Chat(Model):  ## This table is used to save chats of the respective thread
         to_field="id",
         source_field="thread_id",
     )
-    
+
     class Meta:
         table = "chat"
