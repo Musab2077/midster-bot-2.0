@@ -1,57 +1,38 @@
-import { useEffect, useState } from "react";
-import {
-  Routes,
-  Route,
-  BrowserRouter,
-  useLocation,
-  useNavigate,
-} from "react-router-dom";
+import { useEffect } from "react";
+import { Routes, Route, useNavigate } from "react-router-dom";
 import Auth from "./components/Auth";
-import ChatBot from "./components/Chat";
-import "./App.css";
-import { ToastContainer } from "react-toastify";
 import Chat from "./components/Chat";
+import { ToastContainer } from "react-toastify";
+import "react-toastify/dist/ReactToastify.css";
 
-function App() {
-  const [authResponse, setAuthResponse] = useState();
-  const [storageResponse, setStorageResponse] = useState();
-
-  const location = useLocation();
-  const { response } = location.state || {};
-
+export default function App() {
   const navigate = useNavigate();
 
   useEffect(() => {
     if (!localStorage.getItem("token")) {
       navigate("/auth", { replace: true });
     }
-
-    const handleStorageChange = () => {
-      if (!localStorage.getItem("token")) {
-        navigate("/auth", { replace: true });
-      }
+    const handler = () => {
+      if (!localStorage.getItem("token")) navigate("/auth", { replace: true });
     };
-    window.addEventListener("storage", handleStorageChange);
-    return () => {
-      window.removeEventListener("storage", handleStorageChange);
-    };
+    window.addEventListener("storage", handler);
+    return () => window.removeEventListener("storage", handler);
   }, [navigate]);
-
-  if (storageResponse === null) {
-    return;
-  }
 
   return (
     <>
-      <ToastContainer />
-      {/* <Bounce/> */}
+      <ToastContainer
+        position="top-right"
+        autoClose={3000}
+        theme="dark"
+        toastClassName="!rounded-xl !bg-[#13141f] !border !border-white/10 !text-sm !font-light"
+        progressClassName="!bg-gradient-to-r from-indigo-400 to-sky-400"
+      />
       <Routes>
         <Route path="/auth" element={<Auth />} />
-        <Route path="/" element={<ChatBot />} />
-        <Route path="/chat/:chatIds" element={<Chat />} />
+        <Route path="/" element={<Chat />} />
+        <Route path="/chat/:videoId/:chatId" element={<Chat />} />
       </Routes>
     </>
   );
 }
-
-export default App;

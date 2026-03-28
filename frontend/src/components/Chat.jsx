@@ -1,61 +1,95 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { toast } from "react-toastify";
 import NavBar, { NavBarItem } from "./NavBar";
 import SideBar, { SideBarItems, SideBarSavedChat } from "./SideBar";
-import "react-toastify/dist/ReactToastify.css";
 import { HiOutlineBars3 } from "react-icons/hi2";
 import Responses, { ResponseItems } from "./Responses";
-import "./scrollbar.css";
 import { GoSidebarCollapse, GoSidebarExpand } from "react-icons/go";
 import { RxCross2 } from "react-icons/rx";
-import axios from "axios";
 import { IoChatboxEllipsesOutline } from "react-icons/io5";
+import axios from "axios";
 
-export default function Chat(props) {
+const API = "http://127.0.0.1:8000";
+const YT_REGEX =
+  /(https?:\/\/(?:www\.)?(?:youtube\.com\/watch\?v=[\w-]+|youtu\.be\/[\w-]+))/g;
+
+function getYouTubeId(url) {
+  if (!url) return null;
+  const m = url.match(
+    /(?:youtube\.com\/(?:watch\?v=|embed\/)|youtu\.be\/)([A-Za-z0-9_-]{11})/,
+  );
+  return m ? m[1] : null;
+}
+
+const authHeaders = () => ({
+  Authorization: `Bearer ${localStorage.getItem("token")}`,
+});
+
+export default function Chat() {
   const navigate = useNavigate();
 
-  const [mdDevices, setMdDevices] = useState(window.innerWidth > 845);
-  const [iconResponse, setIconResponse] = useState(true);
-  const [messages, setMessages] = useState("");
-  const [responses, setResponses] = useState([]); // { human, bot }
-  const [chatResponse, setChatResponse] = useState(false);
-  const [chatId, setChatId] = useState(0);
-  const [sideButtons, setSideButtons] = useState([]);
+  const { videoId: urlVideoId, chatId: urlChatId } = useParams();
+  const currentChatId = Number(urlChatId) || 0;
+  const currentVideoId = urlVideoId || null;
+
+  const [isMd, setIsMd] = useState(window.innerWidth > 845);
+  const [sideExpanded, setSideExpanded] = useState(true);
   const [overlaySideBar, setOverlaySideBar] = useState(false);
+  const [messages, setMessages] = useState("");
+  const [responses, setResponses] = useState([]);
+  const [sideButtons, setSideButtons] = useState([]);
   const [activeChatId, setActiveChatId] = useState(null);
   const [inputResponse, setInputResponse] = useState(true);
   const [isLoading, setIsLoading] = useState(false);
 
-  // floating draggable video (single source of truth)
-  const [fixedVideoUrl, setFixedVideoUrl] = useState(null);
-  const [dragPos, setDragPos] = useState({ x: window.innerWidth - 360, y: 70 });
+  const floatingVideoUrl = currentVideoId
+    ? `https://www.youtube.com/embed/${currentVideoId}`
+    : null;
+
+  const [dragPos, setDragPos] = useState({ x: window.innerWidth - 370, y: 70 });
   const [isDragging, setIsDragging] = useState(false);
-  const [offset, setOffset] = useState({ x: 0, y: 0 });
+  const dragOffset = useRef({ x: 0, y: 0 });
 
-  const divRef = useRef();
-  const { chatIds = 0 } = useParams();
-  const backendUrl = "http://127.0.0.1:8000";
+  // Responsive
+  useEffect(() => {
+    const fn = () => setIsMd(window.innerWidth > 845);
+    window.addEventListener("resize", fn);
+    return () => window.removeEventListener("resize", fn);
+  }, []);
 
-  // Drag handlers
-  const startDrag = (e) => {
-    setIsDragging(true);
-    setOffset({ x: e.clientX - dragPos.x, y: e.clientY - dragPos.y });
-  };
-  const onDrag = (e) => {
-    if (!isDragging) return;
-    setDragPos({ x: e.clientX - offset.x, y: e.clientY - offset.y });
-  };
-  const stopDrag = () => setIsDragging(false);
+  // Drag logic
+  const startDrag = useCallback(
+    (e) => {
+      setIsDragging(true);
+      dragOffset.current = {
+        x: e.clientX - dragPos.x,
+        y: e.clientY - dragPos.y,
+      };
+    },
+    [dragPos],
+  );
 
   useEffect(() => {
-    window.addEventListener("mousemove", onDrag);
-    window.addEventListener("mouseup", stopDrag);
-    return () => {
-      window.removeEventListener("mousemove", onDrag);
-      window.removeEventListener("mouseup", stopDrag);
+    const onMove = (e) => {
+      if (!isDragging) return;
+      setDragPos({
+        x: e.clientX - dragOffset.current.x,
+        y: e.clientY - dragOffset.current.y,
+      });
     };
-  });
+    const onUp = () => setIsDragging(false);
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+    return () => {
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+    };
+  }, [isDragging]);
+
+  useEffect(() => {
+    setDragPos({ x: window.innerWidth - 370, y: 70 });
+  }, [currentVideoId]);
 
   const handleLogOut = () => {
     localStorage.removeItem("token");
@@ -63,355 +97,341 @@ export default function Chat(props) {
     toast.success("Logged out successfully");
   };
 
-  // Helper to extract youtube id for sidebar display only
-  function getYouTubeId(url) {
-    if (!url) return null;
-    const regex =
-      /(?:youtube\.com\/(?:watch\?v=|embed\/)|youtu\.be\/)([A-Za-z0-9_-]{11})/;
-    const match = url.match(regex);
-    return match ? match[1] : null;
-  }
+  const handleBrandClick = () => {
+    setSideExpanded(false);
+    setOverlaySideBar(false);
+    navigate("/");
+  };
 
-  // Submit message (either start new chat with a single YouTube URL, or continue existing chat)
-  const handleSubmit = async () => {
-    if (!messages.trim()) return;
-
-    const youtubeRegex =
-      /(https?:\/\/(?:www\.)?(youtube\.com\/watch\?v=[\w-]+|youtu\.be\/[\w-]+))/g;
-    const matches = messages.match(youtubeRegex);
+  const handleSubmit = async (msg) => {
+    if (!msg?.trim()) return;
+    const matches = msg.match(YT_REGEX);
 
     try {
-      // Optimistic UI
-      setResponses((prev) => [...prev, { human: messages, bot: "..." }]);
+      setResponses((prev) => [...prev, { human: msg, bot: "..." }]);
 
-      // 🔴 NEW CHAT (chatIds === 0)
-      console.log(matches)
-      if (Number(chatIds) === 0) {
+      // New chat — must start with exactly one YouTube URL
+      if (currentChatId === 0) {
         if (!matches || matches.length !== 1) {
-          toast.error("Send EXACTLY ONE YouTube URL to start chat");
+          toast.error("Send exactly one YouTube URL to start a chat");
           setResponses((prev) => prev.slice(0, -1));
           return;
         }
-
-        // 🔴 START LOADING
         setIsLoading(true);
-
-        const res = await axios.post(
-          `${backendUrl}/new_chat`,
+        const vidId = getYouTubeId(matches[0]);
+        const { data } = await axios.post(
+          `${API}/new_chat`,
           { url: matches[0] },
-          {
-            headers: {
-              Authorization: `Bearer ${localStorage.getItem("token")}`,
-            },
-          }
+          { headers: authHeaders() },
         );
-
-        const newChatId = res.data.thread_id;
-
         setResponses((prev) => [
           ...prev.slice(0, -1),
-          { human: messages, bot: "YouTube processed successfully" },
+          {
+            human: msg,
+            bot: "✅ YouTube video processed! Ask me anything about it.",
+          },
         ]);
-
-        setMessages("");
-        setIsLoading(false); // 🔴 STOP LOADING
-        navigate(`/chat/${newChatId}`);
+        setIsLoading(false);
+        navigate(`/chat/${vidId}/${data.thread_id}`);
         return;
       }
 
-      // EXISTING CHAT
+      // Existing chat — no YouTube URLs allowed
       if (matches) {
-        toast.error("You cannot send a YouTube URL in an existing chat");
+        toast.error("You can't send a YouTube URL in an existing chat");
         setResponses((prev) => prev.slice(0, -1));
         return;
       }
 
-      const res = await axios.post(
-        `${backendUrl}/chat`,
-        { message: messages, chat_id: Number(chatIds) },
-        {
-          headers: {
-            Authorization: `Bearer ${localStorage.getItem("token")}`,
-          },
-        }
+      setIsLoading(true);
+
+      const { data } = await axios.post(
+        `${API}/chat`,
+        { message: msg, chat_id: currentChatId },
+        { headers: authHeaders() },
       );
 
+      setIsLoading(false);
       setResponses((prev) => [
         ...prev.slice(0, -1),
-        { human: messages, bot: res.data.response },
+        { human: msg, bot: data.response },
       ]);
-
       setMessages("");
-      setChatResponse(true);
     } catch (err) {
       console.error(err);
-      toast.error("Error occurred");
+      toast.error("Something went wrong. Please try again.");
       setResponses((prev) => prev.slice(0, -1));
-      setIsLoading(false); // 🔴 ensure loading stops on error
+      setIsLoading(false);
     }
   };
 
   const handleTextArea = (e) => setMessages(e.target.value);
 
-  // Load all threads for sidebar
+  // Load sidebar threads
   useEffect(() => {
-    let isMounted = true;
-    const loadingChats = async () => {
-      try {
-        const response = await axios.get(`${backendUrl}/threads`, {
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${localStorage.getItem("token")}`,
-          },
-        });
-        if (isMounted) setSideButtons(response.data || []);
-      } catch (error) {
-        console.error("Error loading chats:", error);
-        if (isMounted) setSideButtons([]);
-      }
+    let alive = true;
+    axios
+      .get(`${API}/threads`, { headers: authHeaders() })
+      .then(({ data }) => {
+        if (alive) setSideButtons(data || []);
+      })
+      .catch(() => {
+        if (alive) setSideButtons([]);
+      });
+    return () => {
+      alive = false;
     };
-    loadingChats();
-    return () => (isMounted = false);
-  }, [chatIds]);
+  }, [urlChatId]);
 
-  // When user clicks a saved chat in sidebar we fetch its chat history
-  async function handleSavedChat(id) {
+  const handleSavedChat = (id, videoId) => {
     setActiveChatId(id);
     setInputResponse(false);
-    setChatId(id);
-    navigate(`/chat/${id}`);
-    setResponses([]);
     setOverlaySideBar(false);
-
-    try {
-      const output = await axios.get(`${backendUrl}/chat/${id}`, {
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${localStorage.getItem("token")}`,
-        },
-      });
-
-      const backendRes = output.data.response || [];
-
-      // backendRes is already an array of { human, bot } pairs
-      // map to the UI-friendly shape: { human, bot }
-      const mapped = backendRes.map((e) => ({
-        human: e.human || "",
-        bot: e.bot || "",
-      }));
-
-      setResponses(mapped);
-      setChatResponse(true);
-      setMessages("");
-    } catch (err) {
-      // console.log("redirecting");
-      console.error("Error fetching chat:", err);
-      navigate("/chat/0");
-      toast.error("Could not load chat");
-    }
-  }
-
-  function handleNewChat() {
     setResponses([]);
-    setMessages("");
-    setChatId(0);
-    setInputResponse(true);
-    setActiveChatId(null);
-    setFixedVideoUrl(null);
-  }
-
-  function handleDelete(id) {
-    axios
-      .delete(`${backendUrl}/deleting_chat/${id}`)
-      .catch((error) => console.log(error));
-    setSideButtons((prev) => prev.filter((item) => item.chat_id !== id));
-  }
-
-  useEffect(() => {
-    if (Number(chatIds) != 0) {
-      handleSavedChat(Number(chatIds));
-    } else {
-      handleNewChat();
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [chatIds]);
-
-  // Sidebar click handler that also sets the floating video URL (keeps the single floating player)
-  const handleEachThread = (e) => {
-    // sidebar div id is `${e.id} ${getYouTubeId(e.url)}` so split by space
-    const value = e.target.id ? e.target.id.split(" ") : [];
-    const threadId = value[0];
-    const vid = value[1];
-
-    if (threadId) navigate(`/chat/${threadId}`);
-    if (vid) setFixedVideoUrl(`https://www.youtube.com/embed/${vid}`);
+    navigate(`/chat/${videoId}/${id}`);
   };
 
-  return (
-    <>
-      <div className="flex flex-row h-screen bg-mainBg text-white">
-        <div>
-          {overlaySideBar && (
-            <div className=" bg-black bg-opacity-90">
-              <SideBar
-                designing={
-                  "fixed top-0 translate-x-0 bottom-0 flex-shrink-0 z-10"
-                }
-                iconResponse={true}
-              >
-                <div className="flex justify-between">
-                  <button
-                    id="new chat"
-                    className="rounded-md hover:bg-hoveringIcon place-items-center size-8"
-                    onClick={() => navigate("/chat/0")}
-                  >
-                    <IoChatboxEllipsesOutline className="size-5" />
-                  </button>
-                  <button
-                    id="cross icon"
-                    onClick={() => setOverlaySideBar(!overlaySideBar)}
-                    className="rounded-md cursor-ew-resize hover:bg-hoveringIcon place-items-center size-8"
-                  >
-                    <SideBarItems expanding={<RxCross2 className="size-5" />} />
-                  </button>
-                </div>
-                <div>
-                  {sideButtons &&
-                    sideButtons.map((e) => (
-                      <div
-                        key={e.id}
-                        id={`${e.id} ${getYouTubeId(e.url)}`}
-                        ref={divRef}
-                        onClick={handleEachThread}
-                        className={`${
-                          activeChatId == e.id
-                            ? "bg-hoveringIcon"
-                            : "hover:bg-hoveringIcon"
-                        } my-1 rounded-lg px-2 py-1 cursor-pointer flex justify-between`}
-                      >
-                        <SideBarSavedChat savedChat={getYouTubeId(e.url)} />
-                      </div>
-                    ))}
-                </div>
-              </SideBar>
-            </div>
-          )}
-        </div>
+  const handleNewChat = () => {
+    setResponses([]);
+    setMessages("");
+    setInputResponse(true);
+    setActiveChatId(null);
+    navigate("/");
+  };
 
-        {mdDevices && (
-          <div>
-            <SideBar iconResponse={iconResponse}>
-              <div className="flex flex-row justify-between">
-                {iconResponse && (
-                  <button
-                    id="new chat"
-                    className="rounded-md hover:bg-hoveringIcon place-items-center size-8"
-                    onClick={() => navigate("/chat/0")}
-                  >
-                    <IoChatboxEllipsesOutline className="size-5" />
-                  </button>
-                )}
+  const handleDelete = (id) => {
+    axios.delete(`${API}/deleting_chat/${id}`).catch(console.error);
+    setSideButtons((prev) => prev.filter((item) => item.chat_id !== id));
+    if (activeChatId === id) handleNewChat();
+  };
+
+  // Fetch chat history whenever URL params change
+  useEffect(() => {
+    if (currentChatId !== 0) {
+      setActiveChatId(currentChatId);
+      setInputResponse(false);
+      setResponses([]); // clear first so old messages don't flash
+      setMessages("");
+
+      axios
+        .get(`${API}/chat/${currentChatId}`, {
+          headers: { "Content-Type": "application/json", ...authHeaders() },
+        })
+        .then(({ data }) => {
+          // Backend returns: { response: [{ role: "human"|"bot", message: "..." }] }
+          // Pair them up into { human, bot } objects for rendering
+          const raw = data.response || [];
+          const paired = [];
+          for (let i = 0; i < raw.length; i += 2) {
+            const humanEntry = raw[i];
+            const botEntry = raw[i + 1];
+            paired.push({
+              human: humanEntry?.role === "human" ? humanEntry.message : "",
+              bot: botEntry?.role === "bot" ? botEntry.message : "",
+            });
+          }
+          setResponses(paired);
+        })
+        .catch((err) => {
+          console.error("Failed to load chat:", err);
+          navigate("/");
+          toast.error("Could not load chat");
+        });
+    } else {
+      // No chatId in URL → new chat state
+      setResponses([]);
+      setMessages("");
+      setInputResponse(true);
+      setActiveChatId(null);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [urlChatId, urlVideoId]);
+
+  const ChatList = () => (
+    <>
+      {sideButtons.map((e, idx) => {
+        const videoId = getYouTubeId(e.url);
+        return (
+          <div
+            key={e.id || idx}
+            className={`group flex items-center justify-between rounded-xl px-2.5 py-2 transition-colors duration-150 ${
+              activeChatId === e.id
+                ? "bg-indigo-500/15"
+                : "hover:bg-white/[0.07]"
+            }`}
+          >
+            <div className="flex-1 min-w-0">
+              <SideBarSavedChat
+                savedChat={videoId}
+                videoId={videoId}
+                onClick={(vid) => handleSavedChat(e.id, vid)}
+              />
+            </div>
+            <button
+              className="opacity-0 group-hover:opacity-100 flex-shrink-0 text-white/30 hover:text-red-400 transition-all p-0.5 rounded ml-1"
+              onClick={(ev) => {
+                ev.stopPropagation();
+                handleDelete(e.id);
+              }}
+              aria-label="Delete chat"
+            >
+              <RxCross2 size={12} />
+            </button>
+          </div>
+        );
+      })}
+    </>
+  );
+
+  const BrandLink = () => (
+    <button
+      onClick={handleBrandClick}
+      className="text-base font-semibold bg-gradient-to-r from-indigo-400 to-sky-400 bg-clip-text text-transparent tracking-tight px-1 select-none hover:opacity-80 transition-opacity"
+    >
+      MidsterBot
+    </button>
+  );
+
+  return (
+    <div className="flex h-screen bg-[#07080f] text-white overflow-hidden">
+      {/* Mobile overlay sidebar */}
+      {overlaySideBar && (
+        <div
+          className="fixed inset-0 bg-black/70 backdrop-blur-sm z-40"
+          onClick={() => setOverlaySideBar(false)}
+        >
+          <div
+            className="absolute inset-y-0 left-0 z-50"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <SideBar
+              designing="fixed top-0 bottom-0 left-0 z-50"
+              iconResponse={true}
+            >
+              <div className="flex items-center justify-between mb-1">
                 <button
-                  id="close and expand"
-                  className="size-8 place-items-center cursor-ew-resize hover:bg-hoveringIcon rounded-md"
-                  onClick={() => setIconResponse(!iconResponse)}
+                  className="w-8 h-8 flex items-center justify-center rounded-lg text-white/50 hover:bg-white/10 hover:text-white transition-all"
+                  onClick={handleNewChat}
+                  title="New chat"
                 >
-                  <SideBarItems
-                    expanding={
-                      iconResponse ? (
-                        <GoSidebarExpand className="size-5" />
-                      ) : (
-                        <GoSidebarCollapse className="size-5" />
-                      )
-                    }
-                  />
+                  <IoChatboxEllipsesOutline size={17} />
+                </button>
+                <button
+                  className="w-8 h-8 flex items-center justify-center rounded-lg text-white/50 hover:bg-white/10 hover:text-white transition-all"
+                  onClick={() => setOverlaySideBar(false)}
+                >
+                  <RxCross2 size={17} />
                 </button>
               </div>
-
               <div>
-                {sideButtons &&
-                  sideButtons.map((e, value) => (
-                    <div
-                      key={value}
-                      id={`${e.id} ${getYouTubeId(e.url)}`}
-                      onClick={handleEachThread}
-                      className={`${
-                        activeChatId == e.id
-                          ? "bg-hoveringIcon"
-                          : "hover:bg-hoveringIcon"
-                      } my-1 rounded-lg px-2 py-1 cursor-pointer flex justify-between`}
-                    >
-                      <SideBarSavedChat savedChat={getYouTubeId(e.url)} />
-                    </div>
-                  ))}
+                <ChatList />
               </div>
             </SideBar>
           </div>
-        )}
+        </div>
+      )}
 
-        <div
-          className={`w-full overflow-hidden focus-visible:outline-0 h-full ${
-            overlaySideBar && "bg-black opacity-40 cursor-default"
-          }`}
-        >
-          <NavBar>
-            {!mdDevices && (
-              <NavBarItem
-                context={"MidsterBot"}
-                icon={
-                  <button
-                    id="NavBar"
-                    className="hover:bg-hoveringIcon p-2 rounded-xl"
-                    onClick={() => setOverlaySideBar(true)}
-                  >
-                    <HiOutlineBars3 />
-                  </button>
+      {/* Desktop sidebar */}
+      {isMd && (
+        <SideBar iconResponse={sideExpanded}>
+          <div
+            className={`flex items-center mb-1 ${sideExpanded ? "justify-between" : "justify-center"}`}
+          >
+            {sideExpanded && (
+              <button
+                className="w-8 h-8 flex items-center justify-center rounded-lg text-white/50 hover:bg-white/10 hover:text-white transition-all"
+                onClick={handleNewChat}
+                title="New chat"
+              >
+                <IoChatboxEllipsesOutline size={17} />
+              </button>
+            )}
+            <button
+              className="w-8 h-8 flex items-center justify-center rounded-lg text-white/50 hover:bg-white/10 hover:text-white transition-all"
+              onClick={() => setSideExpanded((v) => !v)}
+              title="Toggle sidebar"
+            >
+              <SideBarItems
+                expanding={
+                  sideExpanded ? (
+                    <GoSidebarExpand size={17} />
+                  ) : (
+                    <GoSidebarCollapse size={17} />
+                  )
                 }
               />
-            )}
-            {mdDevices && (
-              <NavBarItem context={"MidsterBot"} logOutFuction={handleLogOut} />
-            )}
-          </NavBar>
+            </button>
+          </div>
+          <div>{sideExpanded && <ChatList />}</div>
+        </SideBar>
+      )}
 
-          {/* Floating draggable video (one place) */}
-          {fixedVideoUrl && (
-            <div
-              className="fixed p-0.5 z-[1000] w-[350px] h-[200px] bg-black rounded-xl overflow-hidden border border-gray-700 shadow-xl transition-all cursor-move"
-              style={{ top: `${dragPos.y}px`, left: `${dragPos.x}px` }}
-              onMouseDown={startDrag}
-            >
-              <iframe
-                className="w-full h-full pointer-events-auto"
-                src={fixedVideoUrl}
-                allowFullScreen
-                frameBorder="0"
-              />
-            </div>
+      {/* Main content */}
+      <div className="flex-1 flex flex-col overflow-hidden relative">
+        <NavBar>
+          {!isMd ? (
+            <NavBarItem
+              context={<BrandLink />}
+              icon={
+                <button
+                  className="w-8 h-8 flex items-center justify-center rounded-lg text-white/50 hover:bg-white/10 hover:text-white transition-all"
+                  onClick={() => setOverlaySideBar(true)}
+                >
+                  <HiOutlineBars3 size={20} />
+                </button>
+              }
+            />
+          ) : (
+            <NavBarItem context={<BrandLink />} logOutFuction={handleLogOut} />
           )}
+        </NavBar>
 
-          <Responses
-            isNewChat={Number(chatIds) === 0}
-            inputResponse={inputResponse}
-            isLoading={isLoading}
-            onSendMessage={handleSubmit}
-            handleTextArea={handleTextArea}
+        {/* Floating draggable video */}
+        {floatingVideoUrl && (
+          <div
+            className="fixed z-[999] w-[340px] rounded-2xl overflow-hidden bg-[#0d0e1a] border border-white/10 shadow-2xl cursor-move select-none"
+            style={{ top: dragPos.y, left: dragPos.x }}
+            onMouseDown={startDrag}
           >
-            {chatResponse && (
-              <div className="max-w-3xl mx-auto">
-                {responses.map((value, key) => (
-                  <ResponseItems
-                    key={key}
-                    item={key}
-                    humanMsg={value.human}
-                    botMsg={value.bot}
-                  />
-                ))}
+            <div className="flex items-center justify-between px-3 py-2 bg-white/[0.04] border-b border-white/[0.06]">
+              <div className="flex items-center gap-2">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="#EF4444">
+                  <path d="M23.498 6.186a3.016 3.016 0 0 0-2.122-2.136C19.505 3.545 12 3.545 12 3.545s-7.505 0-9.377.505A3.017 3.017 0 0 0 .502 6.186C0 8.07 0 12 0 12s0 3.93.502 5.814a3.016 3.016 0 0 0 2.122 2.136c1.871.505 9.376.505 9.376.505s7.505 0 9.377-.505a3.015 3.015 0 0 0 2.122-2.136C24 15.93 24 12 24 12s0-3.93-.502-5.814zM9.545 15.568V8.432L15.818 12l-6.273 3.568z" />
+                </svg>
+                <span className="text-[10px] font-semibold uppercase tracking-widest text-white/35">
+                  Now Playing
+                </span>
               </div>
-            )}
-          </Responses>
-        </div>
+              <button
+                onClick={handleNewChat}
+                className="text-white/30 hover:text-red-400 transition-colors p-0.5 rounded"
+              >
+                <RxCross2 size={13} />
+              </button>
+            </div>
+            <iframe
+              className="w-full h-[192px] block pointer-events-auto"
+              src={floatingVideoUrl}
+              allowFullScreen
+              frameBorder="0"
+              title="YouTube Video"
+            />
+          </div>
+        )}
+
+        <Responses
+          isNewChat={currentChatId === 0}
+          inputResponse={inputResponse}
+          isLoading={isLoading}
+          onSendMessage={handleSubmit}
+          handleTextArea={handleTextArea}
+        >
+          {/* Always render responses directly — no chatResponse gate */}
+          {responses.map((r, i) => (
+            <ResponseItems key={i} item={i} humanMsg={r.human} botMsg={r.bot} />
+          ))}
+        </Responses>
       </div>
-    </>
+    </div>
   );
 }
