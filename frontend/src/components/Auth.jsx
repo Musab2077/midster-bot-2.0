@@ -4,7 +4,7 @@ import { toast } from "react-toastify";
 import axios from "axios";
 import { useNavigate } from "react-router-dom";
 
-const API = "http://127.0.0.1:8000";
+const API = "https://midster-bot-20.vercel.app";
 
 export default function Auth() {
   const [isSignIn, setIsSignIn] = useState(true);
