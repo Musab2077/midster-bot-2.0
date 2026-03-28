@@ -10,7 +10,7 @@ import { RxCross2 } from "react-icons/rx";
 import { IoChatboxEllipsesOutline } from "react-icons/io5";
 import axios from "axios";
 
-const API = "http://127.0.0.1:8000";
+const API = "https://midster-bot-20.vercel.app";
 const YT_REGEX =
   /(https?:\/\/(?:www\.)?(?:youtube\.com\/watch\?v=[\w-]+|youtu\.be\/[\w-]+))/g;
 
